@@ -1,5 +1,4 @@
-workname: SonarCloud Analysis
- 
+name: SonarCloud Analysis 
 on:
   push:
     branches: [ main ]
