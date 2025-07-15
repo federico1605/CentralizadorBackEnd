@@ -33,10 +33,10 @@ export const registrarEntrenador = async (datosParaRegistrar) => {
 
     const lowerCaseMessage = (error.message || '').toLowerCase();
     
-    if (lowerCaseMessage.includes('unicidad') || lowerCaseMessage.includes('ccentrenador001uq') || lowerCaseMessage.includes('ccentrenador002uq')) {
+    if (error.code === '23505' || lowerCaseMessage.includes('unicidad') || lowerCaseMessage.includes('ccentrenador001uq') || lowerCaseMessage.includes('ccentrenador002uq')) {
       let userMessage = 'Ya existe un entrenador con el documento o correo proporcionado.';
       
-      if (lowerCaseMessage.includes('correo')) {
+      if (lowerCaseMessage.includes('correo') || (error.detail && error.detail.toLowerCase().includes('correo'))) {
         userMessage = 'El correo electrónico ingresado ya está registrado.';
       } else if (lowerCaseMessage.includes('documento')) {
         userMessage = 'Ya existe un entrenador con ese tipo y número de documento.';

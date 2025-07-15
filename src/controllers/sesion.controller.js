@@ -1,5 +1,5 @@
 import * as entrenamientoCognitivoService from '../services/entrenamientoCognitivo.service.js';
-import { sendSuccess, handleControllerError } from '../utils/response.util.js';
+import { handleControllerError } from '../utils/response.util.js';
 import logger from '../config/logger.js';
 
 

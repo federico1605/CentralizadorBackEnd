@@ -14,7 +14,7 @@ const pool = new Pool({
 });
 
 // Intento de conexión al pool
-pool.connect((err, client, release) => {
+pool.connect((err, client) => {
   if (err) {
     return logger.error(
       "Error adquiriendo cliente de la base de datos",

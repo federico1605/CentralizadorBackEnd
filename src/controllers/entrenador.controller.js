@@ -1,6 +1,5 @@
 import * as entrenadorService from '../services/entrenador.service.js';
 import logger from '../config/logger.js';
-import { throwClientError } from '../utils/response.util.js';
 
 
 /**
