@@ -25,6 +25,183 @@ function isValidDateTimeString(dateTimeString) {
 }
 
 /**
+ * Valida los datos de entrada para crear un nuevo entrenamiento cognitivo.
+ * @param {object} datosEntrada - Datos del entrenamiento a validar.
+ * @returns {object|null} Objeto de error si hay validaciones fallidas, null si todo está bien.
+ */
+function validarDatosCrearEntrenamiento(datosEntrada) {
+  const {
+    siglaTipoDocEstudiante,
+    numeroDocEstudiante,
+    siglaTipoDocEntrenador,
+    numeroDocEntrenador,
+    fechaFinEntrenamiento,
+    variablesCognitivas,
+  } = datosEntrada;
+
+  if (!siglaTipoDocEstudiante || typeof siglaTipoDocEstudiante !== 'string' || siglaTipoDocEstudiante.trim() === '') {
+    return { success: false, message: 'La sigla del tipo de documento del estudiante es requerida.', statusCode: 400 };
+  }
+  if (!numeroDocEstudiante || typeof numeroDocEstudiante !== 'string' || numeroDocEstudiante.trim() === '') {
+    return { success: false, message: 'El número de documento del estudiante es requerido.', statusCode: 400 };
+  }
+  if (!siglaTipoDocEntrenador || typeof siglaTipoDocEntrenador !== 'string' || siglaTipoDocEntrenador.trim() === '') {
+    return { success: false, message: 'La sigla del tipo de documento del entrenador es requerida.', statusCode: 400 };
+  }
+  if (!numeroDocEntrenador || typeof numeroDocEntrenador !== 'string' || numeroDocEntrenador.trim() === '') {
+    return { success: false, message: 'El número de documento del entrenador es requerido.', statusCode: 400 };
+  }
+  if (fechaFinEntrenamiento && !isValidDateTimeString(fechaFinEntrenamiento)) {
+    return { success: false, message: 'La fecha de fin del entrenamiento debe estar en formato YYYY-MM-DD HH:MM:SS.', statusCode: 400 };
+  }
+  if (!Array.isArray(variablesCognitivas) || variablesCognitivas.length === 0) {
+    return { success: false, message: 'Se debe especificar al menos una variable cognitiva.', statusCode: 400 };
+  }
+  if (variablesCognitivas.some(v => typeof v !== 'string' || v.trim() === '')) {
+    return { success: false, message: 'Las variables cognitivas deben ser cadenas de texto no vacías.', statusCode: 400 };
+  }
+  
+  return null; // No hay errores de validación
+}
+
+/**
+ * Prepara los datos del entrenamiento para la base de datos.
+ * @param {object} datosEntrada - Datos del entrenamiento validados.
+ * @returns {object} Datos formateados para la base de datos.
+ */
+function prepararDatosEntrenamientoParaDB(datosEntrada) {
+  const {
+    siglaTipoDocEstudiante,
+    numeroDocEstudiante,
+    siglaTipoDocEntrenador,
+    numeroDocEntrenador,
+    fechaFinEntrenamiento,
+    variablesCognitivas,
+  } = datosEntrada;
+
+  return {
+    pSiglaTipoDocEstudiante: siglaTipoDocEstudiante.trim(),
+    pNumeroDocEstudiante: numeroDocEstudiante.trim(),
+    pSiglaTipoDocEntrenador: siglaTipoDocEntrenador.trim(),
+    pNumeroDocEntrenador: numeroDocEntrenador.trim(),
+    pVariablesCognitivas: variablesCognitivas.map(v => v.trim()),
+    pFechaFinEntrenamiento: fechaFinEntrenamiento,
+  };
+}
+
+/**
+ * Maneja la respuesta de la base de datos para la creación de entrenamiento.
+ * @param {object} resultado - Resultado de la operación en la base de datos.
+ * @param {string} resultado.entrenamientoId - ID del entrenamiento creado.
+ * @param {string} resultado.mensaje - Mensaje de la operación.
+ * @param {object} resultado.detalles - Detalles adicionales.
+ * @returns {object} Respuesta formateada para el cliente.
+ */
+function manejarRespuestaCrearEntrenamiento(resultado) {
+  const { entrenamientoId, mensaje, detalles } = resultado;
+
+  // Verificar el mensaje de éxito de la BD
+  if (mensaje && mensaje.includes('exitosamente')) {
+    logger.info(`[SERVICIO_ENTRENAMIENTO] Entrenamiento cognitivo creado exitosamente con ID: ${entrenamientoId || 'N/A'}`);
+    return {
+      success: true,
+      data: { id: entrenamientoId, message: mensaje, detalles: detalles },
+      message: mensaje,
+      statusCode: 201
+    };
+  }
+
+  logger.warn(`[SERVICIO_ENTRENAMIENTO] Error controlado desde BD al crear entrenamiento: ${mensaje || 'Mensaje de error desconocido.'}`);
+  let statusCode = 400;
+  if (mensaje && mensaje.includes('ya tiene un entrenamiento')) {
+    statusCode = 409;
+  } else if (mensaje && mensaje.includes('Error')) {
+    statusCode = 400;
+  }
+  return { success: false, message: mensaje, statusCode: statusCode };
+}
+
+/**
+ * Valida los datos de entrada para modificar un entrenamiento cognitivo.
+ * @param {object} datosModificacion - Datos de modificación a validar.
+ * @throws {Error} Si hay errores de validación.
+ */
+function validarDatosModificarEntrenamiento(datosModificacion) {
+  const {
+    siglaTipoDocNuevoEntrenador,
+    numeroDocNuevoEntrenador,
+    variablesAAgregar,
+    variablesARemover,
+  } = datosModificacion;
+
+  // Validación de parámetros de entrenador
+  if ((siglaTipoDocNuevoEntrenador && !numeroDocNuevoEntrenador) || (!siglaTipoDocNuevoEntrenador && numeroDocNuevoEntrenador)) {
+    throwClientError('Para cambiar el entrenador, se deben proporcionar tanto la sigla del tipo de documento como el número de documento del nuevo entrenador.', 400);
+  }
+
+  // Validación de arrays
+  if (variablesAAgregar && !Array.isArray(variablesAAgregar)) {
+    throwClientError('El campo "variablesAAgregar" debe ser un arreglo.', 400);
+  }
+  if (variablesARemover && !Array.isArray(variablesARemover)) {
+    throwClientError('El campo "variablesARemover" debe ser un arreglo.', 400);
+  }
+}
+
+/**
+ * Prepara los datos para la modificación en la base de datos.
+ * @param {string} siglaTipoDocEstudiante - Sigla del tipo de documento del estudiante.
+ * @param {string} numeroDocEstudiante - Número de documento del estudiante.
+ * @param {object} datosModificacion - Datos de modificación.
+ * @returns {object} Datos formateados para la base de datos.
+ */
+function prepararDatosModificacionParaDB(siglaTipoDocEstudiante, numeroDocEstudiante, datosModificacion) {
+  const {
+    variablesAAgregar,
+    variablesARemover,
+    siglaTipoDocNuevoEntrenador,
+    numeroDocNuevoEntrenador,
+    nuevaFechaFinEntrenamiento,
+  } = datosModificacion;
+
+  return {
+    pSiglaTipoDocEstudiante: siglaTipoDocEstudiante,
+    pNumeroDocEstudiante: numeroDocEstudiante,
+    pVariablesAAgregar: variablesAAgregar || null,
+    pVariablesARemover: variablesARemover || null,
+    pSiglaTipoDocNuevoEntrenador: siglaTipoDocNuevoEntrenador || null,
+    pNumeroDocNuevoEntrenador: numeroDocNuevoEntrenador || null,
+    pNuevaFechaFinEntrenamiento: nuevaFechaFinEntrenamiento || null,
+  };
+}
+
+/**
+ * Maneja la respuesta de la base de datos para la modificación de entrenamiento.
+ * @param {object} resultadoDB - Resultado de la operación en la base de datos.
+ * @param {string} siglaTipoDocEstudiante - Sigla del tipo de documento del estudiante.
+ * @param {string} numeroDocEstudiante - Número de documento del estudiante.
+ * @returns {object} Resultado de la operación.
+ * @throws {Error} Si hay errores de negocio.
+ */
+function manejarRespuestaModificarEntrenamiento(resultadoDB, siglaTipoDocEstudiante, numeroDocEstudiante) {
+  // La función de BD es robusta y puede devolver mensajes de error controlados
+  // en lugar de lanzar excepciones SQL para ciertos casos. Los identificamos aquí.
+  if (resultadoDB.mensaje && !resultadoDB.mensaje.toLowerCase().includes('exitosamente')) {
+    logger.warn(`[SERVICIO_ENTRENAMIENTO] La BD devolvió un mensaje de error controlado: ${resultadoDB.mensaje}`);
+    // Asumimos 400 como un error de validación de negocio general. 
+    // Si el mensaje indica un conflicto (ej. "ya existe"), podría ser 409.
+    let statusCode = 400;
+    if (resultadoDB.mensaje.toLowerCase().includes('no tiene un entrenamiento')) {
+      statusCode = 404; // Not Found
+    }
+    throwClientError(resultadoDB.mensaje, statusCode);
+  }
+  
+  logger.info(`[SERVICIO_ENTRENAMIENTO] Entrenamiento de ${siglaTipoDocEstudiante}-${numeroDocEstudiante} modificado exitosamente.`);
+  return resultadoDB;
+}
+
+/**
  * Servicio para consultar el detalle del entrenamiento cognitivo de un estudiante por su tipo y número de documento.
  * @async
  * @param {string} tipoDocumento - Sigla del tipo de documento.
@@ -81,76 +258,28 @@ export const consultarEntrenamientoPorDocumento = async (tipoDocumento, numeroDo
  * @throws {Error} Si ocurre un error inesperado.
  */
 export const crearNuevoEntrenamientoCognitivo = async (datosEntrada) => {
-  const {
-    siglaTipoDocEstudiante,
-    numeroDocEstudiante,
-    siglaTipoDocEntrenador,
-    numeroDocEntrenador,
-    fechaFinEntrenamiento,
-    variablesCognitivas,
-  } = datosEntrada;
-
   logger.debug('[SERVICIO_ENTRENAMIENTO] Solicitud para crear nuevo entrenamiento cognitivo:', datosEntrada);
 
-  // --- Validaciones ---
-  if (!siglaTipoDocEstudiante || typeof siglaTipoDocEstudiante !== 'string' || siglaTipoDocEstudiante.trim() === '') {
-    return { success: false, message: 'La sigla del tipo de documento del estudiante es requerida.', statusCode: 400 };
-  }
-  if (!numeroDocEstudiante || typeof numeroDocEstudiante !== 'string' || numeroDocEstudiante.trim() === '') {
-    return { success: false, message: 'El número de documento del estudiante es requerido.', statusCode: 400 };
-  }
-  if (!siglaTipoDocEntrenador || typeof siglaTipoDocEntrenador !== 'string' || siglaTipoDocEntrenador.trim() === '') {
-    return { success: false, message: 'La sigla del tipo de documento del entrenador es requerida.', statusCode: 400 };
-  }
-  if (!numeroDocEntrenador || typeof numeroDocEntrenador !== 'string' || numeroDocEntrenador.trim() === '') {
-    return { success: false, message: 'El número de documento del entrenador es requerido.', statusCode: 400 };
-  }
-  if (fechaFinEntrenamiento && !isValidDateTimeString(fechaFinEntrenamiento)) {
-    return { success: false, message: 'La fecha de fin del entrenamiento debe estar en formato YYYY-MM-DD HH:MM:SS.', statusCode: 400 };
-  }
-  if (!Array.isArray(variablesCognitivas) || variablesCognitivas.length === 0) {
-    return { success: false, message: 'Se debe especificar al menos una variable cognitiva.', statusCode: 400 };
-  }
-  if (variablesCognitivas.some(v => typeof v !== 'string' || v.trim() === '')) {
-      return { success: false, message: 'Las variables cognitivas deben ser cadenas de texto no vacías.', statusCode: 400 };
-  }
-
   try {
-    const datosEntrenamientoParaDB = {
-      pSiglaTipoDocEstudiante: siglaTipoDocEstudiante.trim(),
-      pNumeroDocEstudiante: numeroDocEstudiante.trim(),
-      pSiglaTipoDocEntrenador: siglaTipoDocEntrenador.trim(),
-      pNumeroDocEntrenador: numeroDocEntrenador.trim(),
-      pVariablesCognitivas: variablesCognitivas.map(v => v.trim()),
-      pFechaFinEntrenamiento: fechaFinEntrenamiento,
-    };
-
-    const { entrenamientoId, mensaje, detalles } = await EntrenamientoModel.crearEntrenamientoCognitivoDB(datosEntrenamientoParaDB);
-
-    // Verificar el mensaje de éxito de la BD
-    if (mensaje && mensaje.includes('exitosamente')) {
-      logger.info(`[SERVICIO_ENTRENAMIENTO] Entrenamiento cognitivo creado exitosamente con ID: ${entrenamientoId || 'N/A'}`);
-      return {
-        success: true,
-        data: { id: entrenamientoId, message: mensaje, detalles: detalles },
-        message: mensaje,
-        statusCode: 201
-      };
+    // Validar datos de entrada
+    const errorValidacion = validarDatosCrearEntrenamiento(datosEntrada);
+    if (errorValidacion) {
+      return errorValidacion;
     }
 
-    logger.warn(`[SERVICIO_ENTRENAMIENTO] Error controlado desde BD al crear entrenamiento: ${mensaje || 'Mensaje de error desconocido.'}`);
-    let statusCode = 400;
-    if (mensaje && mensaje.includes('ya tiene un entrenamiento')) {
-      statusCode = 409;
-    } else if (mensaje && mensaje.includes('Error')) {
-      statusCode = 400;
-    }
-    return { success: false, message: mensaje, statusCode: statusCode };
+    // Preparar datos para la base de datos
+    const datosEntrenamientoParaDB = prepararDatosEntrenamientoParaDB(datosEntrada);
+
+    // Ejecutar operación en la base de datos
+    const resultado = await EntrenamientoModel.crearEntrenamientoCognitivoDB(datosEntrenamientoParaDB);
+    
+    // Manejar respuesta de la base de datos
+    return manejarRespuestaCrearEntrenamiento(resultado);
 
   } catch (error) {
     logger.error('[SERVICIO_ENTRENAMIENTO] Error inesperado en el servicio al crear entrenamiento cognitivo:', error);
     if (!error.statusCode) {
-        error.statusCode = 500;
+      error.statusCode = 500;
     }
     throw error;
   }
@@ -329,61 +458,23 @@ export const actualizarObservacionSesion = async (idSesion, nuevaObservacion) =>
  * @throws {Error} Lanza un error con statusCode para ser manejado por el controlador.
  */
 export const modificarEntrenamientoCognitivo = async (siglaTipoDocEstudiante, numeroDocEstudiante, datosModificacion) => {
-  const {
-    variablesAAgregar,
-    variablesARemover,
-    siglaTipoDocNuevoEntrenador,
-    numeroDocNuevoEntrenador,
-    nuevaFechaFinEntrenamiento,
-  } = datosModificacion;
-
   logger.debug(`[SERVICIO_ENTRENAMIENTO] Solicitud para modificar entrenamiento de ${siglaTipoDocEstudiante}-${numeroDocEstudiante} con datos:`, datosModificacion);
 
-  // Validación de parámetros de entrenador
-  if ((siglaTipoDocNuevoEntrenador && !numeroDocNuevoEntrenador) || (!siglaTipoDocNuevoEntrenador && numeroDocNuevoEntrenador)) {
-    throwClientError('Para cambiar el entrenador, se deben proporcionar tanto la sigla del tipo de documento como el número de documento del nuevo entrenador.', 400);
-  }
-
-  // Validación de arrays
-  if (variablesAAgregar && !Array.isArray(variablesAAgregar)) {
-    throwClientError('El campo "variablesAAgregar" debe ser un arreglo.', 400);
-  }
-   if (variablesARemover && !Array.isArray(variablesARemover)) {
-    throwClientError('El campo "variablesARemover" debe ser un arreglo.', 400);
-  }
-
   try {
-    const datosParaDB = {
-      pSiglaTipoDocEstudiante: siglaTipoDocEstudiante,
-      pNumeroDocEstudiante: numeroDocEstudiante,
-      pVariablesAAgregar: variablesAAgregar || null,
-      pVariablesARemover: variablesARemover || null,
-      pSiglaTipoDocNuevoEntrenador: siglaTipoDocNuevoEntrenador || null,
-      pNumeroDocNuevoEntrenador: numeroDocNuevoEntrenador || null,
-      pNuevaFechaFinEntrenamiento: nuevaFechaFinEntrenamiento || null,
-    };
+    // Validar datos de entrada
+    validarDatosModificarEntrenamiento(datosModificacion);
 
+    // Preparar datos para la base de datos
+    const datosParaDB = prepararDatosModificacionParaDB(siglaTipoDocEstudiante, numeroDocEstudiante, datosModificacion);
+
+    // Ejecutar operación en la base de datos
     const resultadoDB = await EntrenamientoModel.modificarEntrenamientoCognitivoDB(datosParaDB);
-
-    // La función de BD es robusta y puede devolver mensajes de error controlados
-    // en lugar de lanzar excepciones SQL para ciertos casos. Los identificamos aquí.
-    if (resultadoDB.mensaje && !resultadoDB.mensaje.toLowerCase().includes('exitosamente')) {
-      logger.warn(`[SERVICIO_ENTRENAMIENTO] La BD devolvió un mensaje de error controlado: ${resultadoDB.mensaje}`);
-      // Asumimos 400 como un error de validación de negocio general. 
-      // Si el mensaje indica un conflicto (ej. "ya existe"), podría ser 409.
-      let statusCode = 400;
-      if (resultadoDB.mensaje.toLowerCase().includes('no tiene un entrenamiento')) {
-          statusCode = 404; // Not Found
-      }
-      throwClientError(resultadoDB.mensaje, statusCode);
-    }
     
-    logger.info(`[SERVICIO_ENTRENAMIENTO] Entrenamiento de ${siglaTipoDocEstudiante}-${numeroDocEstudiante} modificado exitosamente.`);
-    return resultadoDB;
+    // Manejar respuesta de la base de datos
+    return manejarRespuestaModificarEntrenamiento(resultadoDB, siglaTipoDocEstudiante, numeroDocEstudiante);
 
   } catch (error) {
     logger.error(`[SERVICIO_ENTRENAMIENTO] Error en el servicio al modificar entrenamiento: ${error.message}`);
-    
 
     if (error.statusCode) {
       throw error;
@@ -391,8 +482,8 @@ export const modificarEntrenamientoCognitivo = async (siglaTipoDocEstudiante, nu
 
     // Si el error tiene el código 'P0001', es un RAISE EXCEPTION de la BD
     if (error.code === 'P0001') {
-        // Lanzamos un error de cliente (400) con el mensaje exacto de la base de datos.
-        throwClientError(error.message, 400);
+      // Lanzamos un error de cliente (400) con el mensaje exacto de la base de datos.
+      throwClientError(error.message, 400);
     }
 
     // Para cualquier otro tipo de error (problemas de conexión, etc.), lanzamos un error 500 genérico.

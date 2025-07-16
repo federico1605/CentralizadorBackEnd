@@ -23,23 +23,11 @@ function isValidDateString(dateString) {
 }
 
 /**
- * Servicio para registrar un nuevo estudiante.
- * Delega la validación de IDs de entidades relacionadas (tipo de documento, género, programas)
- * y la inserción a la función de base de datos CC.RegistrarEstudiante.
- * @async
- * @param {object} datosEntrada - Datos del estudiante provenientes del controlador.
- * @param {string} datosEntrada.siglaTipoDocumento - Sigla del tipo de documento (ej. "CC").
- * @param {string} datosEntrada.nombreGenero - Nombre del género (ej. "Masculino").
- * @param {string} datosEntrada.nombres - Nombres del estudiante.
- * @param {string} datosEntrada.apellidos - Apellidos del estudiante.
- * @param {string} datosEntrada.numeroDocumento - Número de documento.
- * @param {string} datosEntrada.fechaNacimiento - Fecha de nacimiento (YYYY-MM-DD).
- * @param {string} datosEntrada.correo - Correo electrónico.
- * @param {string[]} datosEntrada.programaNombres - Array de nombres de programas.
- * @returns {Promise<{success: boolean, data?: object, message?: string, statusCode?: number}>}
- *          Objeto indicando éxito y los datos del estudiante creado, o un mensaje de error.
+ * Valida los datos de entrada para el registro de un estudiante.
+ * @param {object} datosEntrada - Datos del estudiante a validar.
+ * @throws {Error} Si algún campo no es válido.
  */
-export const registrarEstudiante = async (datosEntrada) => {
+function validarDatosEstudiante(datosEntrada) {
   const {
     siglaTipoDocumento,
     nombreGenero,
@@ -51,9 +39,6 @@ export const registrarEstudiante = async (datosEntrada) => {
     programaNombres,
   } = datosEntrada;
 
-  logger.debug('[SERVICIO_ESTUDIANTE] Solicitud para registrar nuevo estudiante:', datosEntrada);
-
-  // --- Validaciones (solo para los campos básicos que el servicio sigue recibiendo) ---
   if (!siglaTipoDocumento || typeof siglaTipoDocumento !== 'string' || !siglaTipoDocumento.trim()) {
     throwClientError('La sigla del tipo de documento es requerida.', 400);
   }
@@ -81,47 +66,108 @@ export const registrarEstudiante = async (datosEntrada) => {
   if (programaNombres.some(p => typeof p !== 'string' || !p.trim())) {
     throwClientError('Los nombres de los programas deben ser cadenas de texto no vacías.', 400);
   }
+}
+
+/**
+ * Prepara los datos del estudiante para la base de datos.
+ * @param {object} datosEntrada - Datos del estudiante validados.
+ * @returns {object} Datos formateados para la base de datos.
+ */
+function prepararDatosParaDB(datosEntrada) {
+  const {
+    siglaTipoDocumento,
+    nombreGenero,
+    nombres,
+    apellidos,
+    numeroDocumento,
+    fechaNacimiento,
+    correo,
+    programaNombres,
+  } = datosEntrada;
+
+  return {
+    pSiglaTipoDocumento: siglaTipoDocumento.trim(),
+    pGeneroNombre: nombreGenero.trim(),
+    pNombres: nombres.trim(),
+    pApellidos: apellidos.trim(),
+    pNumeroDocumento: numeroDocumento.trim(),
+    pFechaNacimiento: fechaNacimiento,
+    pCorreo: correo.trim(),
+    pProgramaNombres: programaNombres.map(p => p.trim()),
+  };
+}
+
+/**
+ * Maneja la respuesta de la base de datos para el registro de estudiante.
+ * @param {object} resultado - Resultado de la operación en la base de datos.
+ * @param {string} resultado.estudianteId - ID del estudiante creado.
+ * @param {string} resultado.mensaje - Mensaje de la operación.
+ * @returns {object} Respuesta formateada para el cliente.
+ * @throws {Error} Si hay errores de negocio.
+ */
+function manejarRespuestaRegistro(resultado) {
+  const { estudianteId, mensaje } = resultado;
+
+  // CASO 1: Éxito explícito
+  if (mensaje && mensaje.toLowerCase().includes('exitosamente')) {
+    logger.info(`[SERVICIO_ESTUDIANTE] Estudiante registrado exitosamente con ID: ${estudianteId || 'No devuelto'}`);
+    return {
+      success: true,
+      data: { id: estudianteId, message: mensaje },
+      message: mensaje,
+    };
+  }
+
+  // CASO 2: Error de negocio reportado por la BD (ej. unicidad)
+  const lowerCaseMessage = (mensaje || '').toLowerCase();
+  logger.warn(`[SERVICIO_ESTUDIANTE] Operación en BD reportó un error controlado: ${mensaje}`);
+
+  if (lowerCaseMessage.includes('unicidad') || lowerCaseMessage.includes('violates unique constraint')) {
+    let userMessage = 'El valor de un campo único ya está registrado.';
+    if (lowerCaseMessage.includes('correo')) {
+      userMessage = 'El correo electrónico ingresado ya está registrado.';
+    } else if (lowerCaseMessage.includes('numerodocumento')) {
+      userMessage = 'El número de documento ingresado ya está registrado.';
+    }
+    throwClientError(userMessage, 409); // 409 Conflict
+  }
+
+  // CASO 3: Otro error controlado por la BD o respuesta inesperada
+  throwClientError(mensaje || 'La operación en la base de datos no se completó correctamente.', 400);
+}
+
+/**
+ * Servicio para registrar un nuevo estudiante.
+ * Delega la validación de IDs de entidades relacionadas (tipo de documento, género, programas)
+ * y la inserción a la función de base de datos CC.RegistrarEstudiante.
+ * @async
+ * @param {object} datosEntrada - Datos del estudiante provenientes del controlador.
+ * @param {string} datosEntrada.siglaTipoDocumento - Sigla del tipo de documento (ej. "CC").
+ * @param {string} datosEntrada.nombreGenero - Nombre del género (ej. "Masculino").
+ * @param {string} datosEntrada.nombres - Nombres del estudiante.
+ * @param {string} datosEntrada.apellidos - Apellidos del estudiante.
+ * @param {string} datosEntrada.numeroDocumento - Número de documento.
+ * @param {string} datosEntrada.fechaNacimiento - Fecha de nacimiento (YYYY-MM-DD).
+ * @param {string} datosEntrada.correo - Correo electrónico.
+ * @param {string[]} datosEntrada.programaNombres - Array de nombres de programas.
+ * @returns {Promise<{success: boolean, data?: object, message?: string, statusCode?: number}>}
+ *          Objeto indicando éxito y los datos del estudiante creado, o un mensaje de error.
+ */
+export const registrarEstudiante = async (datosEntrada) => {
+  logger.debug('[SERVICIO_ESTUDIANTE] Solicitud para registrar nuevo estudiante:', datosEntrada);
 
   try {
-    const datosEstudianteParaDB = {
-      pSiglaTipoDocumento: siglaTipoDocumento.trim(),
-      pGeneroNombre: nombreGenero.trim(),
-      pNombres: nombres.trim(),
-      pApellidos: apellidos.trim(),
-      pNumeroDocumento: numeroDocumento.trim(),
-      pFechaNacimiento: fechaNacimiento,
-      pCorreo: correo.trim(),
-      pProgramaNombres: programaNombres.map(p => p.trim()),
-    };
+    // Validar datos de entrada
+    validarDatosEstudiante(datosEntrada);
 
-    const { estudianteId, mensaje } = await EstudianteModel.registrarEstudianteDB(datosEstudianteParaDB);
+    // Preparar datos para la base de datos
+    const datosEstudianteParaDB = prepararDatosParaDB(datosEntrada);
+
+    // Ejecutar operación en la base de datos
+    const resultado = await EstudianteModel.registrarEstudianteDB(datosEstudianteParaDB);
     
-    // CASO 1: Éxito explícito
-    if (mensaje && mensaje.toLowerCase().includes('exitosamente')) {
-      logger.info(`[SERVICIO_ESTUDIANTE] Estudiante registrado exitosamente con ID: ${estudianteId || 'No devuelto'}`);
-      return {
-        success: true,
-        data: { id: estudianteId, message: mensaje },
-        message: mensaje,
-      };
-    }
-
-    // CASO 2: Error de negocio reportado por la BD (ej. unicidad)
-    const lowerCaseMessage = (mensaje || '').toLowerCase();
-    logger.warn(`[SERVICIO_ESTUDIANTE] Operación en BD reportó un error controlado: ${mensaje}`);
-
-    if (lowerCaseMessage.includes('unicidad') || lowerCaseMessage.includes('violates unique constraint')) {
-      let userMessage = 'El valor de un campo único ya está registrado.';
-      if (lowerCaseMessage.includes('correo')) {
-        userMessage = 'El correo electrónico ingresado ya está registrado.';
-      } else if (lowerCaseMessage.includes('numerodocumento')) {
-        userMessage = 'El número de documento ingresado ya está registrado.';
-      }
-      throwClientError(userMessage, 409); // 409 Conflict
-    }
-
-    // CASO 3: Otro error controlado por la BD o respuesta inesperada
-    throwClientError(mensaje || 'La operación en la base de datos no se completó correctamente.', 400);
+    // Manejar respuesta de la base de datos
+    return manejarRespuestaRegistro(resultado);
 
   } catch (error) {
     // Esto captura tanto los errores lanzados por `throwClientError` como errores inesperados (ej. conexión)
